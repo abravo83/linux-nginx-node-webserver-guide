@@ -272,7 +272,7 @@ Si no hay nada de esto, ponte en contacto con el proveedor para que te vuelva a 
 
 - Si necesitas acceder a otros servicios (como bases de datos), recuerda abrir los puertos correspondientes.
 
-  Aunque **mi recomendación es que NO habras dichos puertos en el caso de Bases de Datos siempre que tu API esté alojada en el mismo servidor** que tu bbdd va a realizar una conexión local y no necesita exponerse a internet, que siempre es un riesgo si no es necesario.
+  Aunque **mi recomendación es que NO habras dichos puertos en el caso de Bases de Datos siempre que tu API esté alojada en el mismo servidor** que tu bbdd, ya que va a realizar una conexión local y no necesita exponerse a internet, que siempre es un riesgo si no es necesario.
 
 - Es recomendable mantener el número de puertos abiertos al mínimo necesario
 
