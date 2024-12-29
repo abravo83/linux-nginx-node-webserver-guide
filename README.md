@@ -2,31 +2,46 @@
 
 ## The Problem
 
-We want to have an Express or similar web server running through a node process.
+When we need to run multiple Node.js/Express web applications on the same server, we face a significant limitation: standard web ports.
 
-The problem is that a web server only responds to port 80 for http or port 443 for https by default.
+By convention, web browsers connect to port 80 for HTTP and port 443 for HTTPS. If we try to run several Express applications simultaneously (for example, an Angular/React application and an API), they would all need to listen on these same ports.
 
-If we configure an Express server that, for example, runs a web application made with Angular or React, and then we want to add another web application that has an API and also works by listening to port 443 and 80. When we make the request to the server... Which of the express-node servers responds?
+<br/>
 
 ![Figure 1: A server with multiple nodes listening to port 443](img/fig-1.png)
 
-What if we add even more?
+This creates a conflict: Which application should respond to incoming requests?
 
-The problem will therefore be that our server won't know which node to respond from. If we've added a domain `www.mywebdomain.com` and even if we add a second domain `www.myapidomain.com`, it won't matter, since domains only indicate which IP to direct requests to, and not which port. Therefore, we cannot expect each domain to be answered by different Express servers.
+Even if we configure different domains (for example, `www.mywebdomain.com` for the frontend application and `www.myapidomain.com` for the API), the problem persists. Domains only determine which IP address the requests are directed to, but they don't specify the port. Therefore, we cannot assign different domains to different Express applications listening on the same port.
 
 ## The Solutions
 
-- One solution would be to contract a server per web application. But this would be a somewhat costly and inefficient solution.
+- The first solution would be to hire an independent server for each web application. However, this is costly and inefficient from both a resource and management perspective.
 
-- Another solution could be to specify different ports and have the web servers not listening to the same port. This solution is perhaps more feasible for an API, leaving the React/Angular web on 443 so it can be called from `https://www.mywebdomain.com` (When no port is specified, it goes to 443 if it has https and 80 if it has http) while API requests could be specifically directed to other ports: `https://www.mywebdomain.com:3030`.
+- The second solution involves configuring applications to listen on different ports. For example, keeping the main React/Angular application on port 443 (accessible via `https://www.mywebdomain.com`), while the API would listen on another port (accessible via `https://www.mywebdomain.com:3030`). When no port is specified in the URL, the browser defaults to port 443 for HTTPS and 80 for HTTP.
 
-  This solution is valid in principle, but if we add more websites that serve frontends, we cannot expect users of those websites to use domains that specify ports. It's a solution that lacks professionalism. Additionally, this solution will bring us other problems when issuing and renewing SSL certificates to use `https://`
+  Although this solution might work initially, it presents two significant problems:
 
-- The solution proposed here is to use a type of web server that is the only one listening to those ports 443 and 80, and this in turn forwards those requests to other web servers running locally on the server but on different ports (e.g., 3010, 3011...) and these local servers will not be directly exposed -Their ports will not be open in the firewall-. This type of web server that distributes requests to others is known as a **Reverse Proxy**. If we also combine it with the use of subdomains, we can make many web services available through a single domain: `https://www.mywebdomain.com`, `https://api.mywebdomain.com`, `https://mywebapp2.mywebdomain.com` since the reverse proxy will analyze which domain each request comes from and distribute it to the appropriate local web server.
+  1. It's not professional to require end users to include specific port numbers in URLs
+  2. It significantly complicates the management and renewal of SSL certificates required for HTTPS
 
-  It's also a common solution that will work correctly with SSL certificate management clients like _certbot_ and will allow us to automate the process of renewing those certificates.
+- The recommended solution is to use a web server that acts as a **Reverse Proxy**. This server will be the only one listening on ports 443 and 80, and will be responsible for forwarding requests to different web servers running locally on other ports (for example, 3010, 3011...). These local servers remain secure by not being directly exposed to the Internet, as their ports are not open in the firewall.
 
-![Figure 1: A server listening with a reverse proxy to port 443](img/fig-2.png)
+  By combining this configuration with subdomains, we can offer multiple web services through a single main domain:
+
+  - `https://www.mywebdomain.com` (main frontend)
+  - `https://api.mywebdomain.com` (API)
+  - `https://mywebapp2.mywebdomain.com` (another application)
+
+  The reverse proxy analyzes the domain of each incoming request and redirects it to the corresponding local server.
+
+  This architecture is a proven solution that works perfectly with SSL certificate managers like _certbot_, allowing complete automation of the certificate issuance and renewal process.
+
+  <br/>
+
+![Figure 1: A server listening with a reverse proxy on port 443](img/fig-2.png)
+
+<br/>
 
 ## Configuration Process
 
@@ -277,3 +292,135 @@ If none of these options are available, contact your provider to have them reset
 - It's recommended to keep the number of open ports to the minimum necessary
 
 - Consider using allowed IP ranges for critical services if possible
+
+## 4. UPDATE THE SYSTEM
+
+We'll apply pending updates in case there are any security patches available. To do this, we'll run `update` for `apt` (aptitude), which is Ubuntu's package manager, and then `upgrade` to apply the updates. Rocky Linux's package manager is `dfn`, although here I'll only present the installation with `apt`, it shouldn't be much different if using `dfn`.
+
+```bash
+sudo apt update && upgrade -y
+```
+
+It's possible and recommended that we need to restart the system
+
+```bash
+sudo reboot
+```
+
+## 5. INSTALL NODE
+
+To install Node.js on our server, we have several options. The recommended one is to use NVM (Node Version Manager) which will allow us to install and manage multiple versions of Node.js. This in turn will allow us to run servers with different Node versions within the same server.
+
+### 5.1 Install NVM
+
+First, we download and execute the NVM installation bash script with the latest version, but it's recommended to check the [nvm repository](https://github.com/nvm-sh/nvm/) to find out what the current latest version of nvm is.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+```
+
+After installing, we restart the terminal or execute the following to refresh and have the `nvm` command available:
+
+```bash
+source ~/.bashrc
+```
+
+### 5.2 Verify NVM installation
+
+```bash
+nvm --version
+```
+
+### 5.3 Install Node.js
+
+To install the latest LTS version of node (recommended for production):
+
+```bash
+nvm install --lts
+```
+
+Or if you need a specific version:
+
+```bash
+nvm install 20.11.1  # For example, to install version 20.11.1
+```
+
+Or if you want to install the latest version 22 (Recommended option when you need several Node versions):
+
+```bash
+nvm install 22  # For example, to install version 22.##.#
+```
+
+Node uses even numbers for LTS versions. Currently, the LTS versions are 22, 20 is still in maintenance, and 18 is in the process of being deprecated and maintenance ending. It's recommended to use these Node versions because they continue receiving security updates.
+
+### 5.4 Verify the installation
+
+```bash
+node --version
+npm --version
+```
+
+### 5.5 Useful NVM commands
+
+```bash
+nvm ls                 # List installed versions
+nvm use 16.20.0        # Switch to a specific version
+nvm use 20             # Switch to the latest installed LTS version that starts with 20
+nvm current            # See current version in use
+```
+
+## 6. INSTALL NGINX
+
+NGINX will be our reverse proxy server that will manage all incoming requests and redirect them to our local Node.js servers.
+
+### 6.1 NGINX Installation
+
+```bash
+# Update repository to have the latest version
+sudo apt update
+
+# Install NGINX
+sudo apt install nginx -y
+```
+
+This will run the installer with default options, which are necessary for our use. NGINX will be installed as a service on our server. To interact with this service and all services installed on the server, we'll use the `systemctl` tool.
+
+### 6.2 Verify the installation
+
+```bash
+# Check service status
+sudo systemctl status nginx
+```
+
+You should see text with a green dot indicating if the service is running, if it's `enabled` (meaning it will start automatically with each system restart) and the latest console outputs from the application.
+
+### 6.3 Basic management commands
+
+```bash
+# Start NGINX
+sudo systemctl start nginx
+
+# Stop NGINX
+sudo systemctl stop nginx
+
+# Restart NGINX
+sudo systemctl restart nginx
+
+# Reload configuration without stopping the service (Useful when we've made configuration changes and want them to take effect without restarting the service)
+sudo systemctl reload nginx
+
+# Enable NGINX to start with the system
+sudo systemctl enable nginx
+```
+
+### 6.4 Verify the firewall
+
+Make sure NGINX can receive traffic by allowing HTTP and HTTPS ports (In theory we should have already done this step, but it doesn't hurt to make sure by allowing application access through the firewall):
+
+```bash
+sudo ufw allow 'Nginx Full'
+```
+
+### 6.5 Verify installation and operation
+
+Open a browser and visit your server's IP. You should see NGINX's default welcome page. At this point, you would have the NGINX web server running.
