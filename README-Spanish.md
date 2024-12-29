@@ -2,31 +2,46 @@
 
 ## El problema
 
-Queremos poder tener disponible un servidor web Express o similar corriendo a través de un proceso node.
+Cuando necesitamos ejecutar múltiples aplicaciones web Node.js/Express en un mismo servidor, nos encontramos con una limitación importante: los puertos estándar web.
 
-El problema es que un servidor web sólo responde a los puertos 80 si es http o al puerto 443 si es https por defecto.
+Por convención, los navegadores web se conectan al puerto 80 para HTTP y al puerto 443 para HTTPS. Si intentamos ejecutar varias aplicaciones Express simultáneamente (por ejemplo, una aplicación Angular/React y una API), todas necesitarían escuchar estos mismos puertos.
 
-Si configuramos un servidor Express que, por ejemplo, corra una aplicación web hecha con Angular o React y luego queremos añadir otra aplicación web que tenga una API y que también funcione escuchando al puerto 443 y 80. Cuando le hagamos la petición al servidor... ¿Desde cuál de los servidores express-node contesta?
+<br/>
 
 ![Figura 1: Un servidor con varios node escuchando al puerto 443](img/fig-1.png)
 
-¿Y si añadimos aún más?
+Esto genera un conflicto: ¿Qué aplicación debería responder a las peticiones entrantes?
 
-El problema será por tanto que nuestro servidor no va a saber desde que node contestar. Si le hemos añadido un dominio `www.midominioweb.com` y aunque añadamos un segundo dominio `www.midominioapi.com`, va a dar igual, ya que los dominios sólo indican a que IP dirigir las peticiones, y no a que puerto. Por lo cual no podemos esperar que cada uno de los dominios sea contestado por diferentes servidores Express.
+Aunque configuremos diferentes dominios (por ejemplo, `www.midominioweb.com` para la aplicación frontend y `www.midominioapi.com` para la API), el problema persiste. Los dominios solo determinan a qué dirección IP se dirigen las peticiones, pero no especifican el puerto. Por lo tanto, no podemos asignar diferentes dominios a diferentes aplicaciones Express que escuchan en el mismo puerto.
 
 ## Las soluciones
 
-- Una solución sería ir contratando un servidor por aplicación web. Pero va a ser una solución algo costosa e ineficiente.
+- La primera solución sería contratar un servidor independiente para cada aplicación web. Sin embargo, esto resulta costoso e ineficiente desde el punto de vista de recursos y gestión.
 
-- Otra solución podría ser especificar diferentes puertos y que los servidores web no estén escuchado al mismo puerto, y esta solución es quizás más factible para una API dejando la web React/Angular en el 443 para que se pueda llamar desde `https://www.midominioweb.com` (Cuando no se especifica puerto va al 443 si tiene https y al 80 si tiene http) mientras que las peticiones a la API podrían estar dirigidas específicamente a otros puertos: `https://www.midominioweb.com:3030`.
+- La segunda solución consiste en configurar las aplicaciones para que escuchen en diferentes puertos. Por ejemplo, mantener la aplicación principal React/Angular en el puerto 443 (accesible mediante `https://www.midominioweb.com`), mientras que la API escucharía en otro puerto (accesible mediante `https://www.midominioweb.com:3030`). Cuando no se especifica un puerto en la URL, el navegador utiliza por defecto el puerto 443 para HTTPS y el 80 para HTTP.
 
-  Esta solución nos es válida en principio pero si añadimos más webs que sirvan frontends no podemos esperar que los usuaios de esas webs usen dominios que especifique puertos. Es una solución que da poca seriedad. Además esta solución nos va a traer otros problemas a la hora de expedir y renovar certificados SSL para poder usar `https://`
+  Aunque esta solución podría funcionar inicialmente, presenta dos problemas importantes:
 
-- La solución que se propone aquí es la de usar un tipo de servidor web que sea el único que escucha a esos puertos 443 y 80 y que este a su vez reenvíe esas peticiones a otros servidores web corriendo de forma local en el servidor pero en otros puertos diferentes (p.e. 3010, 3011...) y estos servidores locales no van a estar expuestos directamente -Sus puertos no van a estar abiertos en el firewall-. A este tipo de servidor web que reparte peticiones a otros se le conoce como un **Reverse Proxy**. Si además la combinamos con el uso de subdominios conseguimos que a través de un único domínio podemos hacer disponibles muchísimos servicios web: `https://www.midominioweb.com`, `https://api.midominioweb.com`, `https://mywebapp2.midominioweb.com` ya que el reverse proxy analizará de que dominio viene cada petición y lo repartirá al servidor local web adecuado.
+  1. No es profesional requerir que los usuarios finales incluyan números de puerto específicos en las URLs
+  2. Complica significativamente la gestión y renovación de certificados SSL necesarios para HTTPS
 
-  Además es una solución común que va a funcionar correctamente con clientes de gestión de certificados ssl como _certbot_ y que nos van a permitir dejar automatizado el proceso de renovación de esos certificados.
+- La solución recomendada es utilizar un servidor web que actúe como **Reverse Proxy**. Este servidor será el único que escuche en los puertos 443 y 80, y se encargará de reenviar las peticiones a diferentes servidores web que corren localmente en otros puertos (por ejemplo, 3010, 3011...). Estos servidores locales permanecen seguros al no estar expuestos directamente a Internet, ya que sus puertos no están abiertos en el firewall.
+
+  Al combinar esta configuración con subdominios, podemos ofrecer múltiples servicios web a través de un único dominio principal:
+
+  - `https://www.midominioweb.com` (frontend principal)
+  - `https://api.midominioweb.com` (API)
+  - `https://mywebapp2.midominioweb.com` (otra aplicación)
+
+  El reverse proxy analiza el dominio de cada petición entrante y la redirige al servidor local correspondiente.
+
+  Esta arquitectura es una solución probada que funciona perfectamente con gestores de certificados SSL como _certbot_, permitiendo la automatización completa del proceso de emisión y renovación de certificados.
+
+  <br/>
 
 ![Figura 1: Un servidor escuchando con un reverse proxy al puerto 443](img/fig-2.png)
+
+<br/>
 
 ## El proceso de configuración
 
@@ -277,3 +292,135 @@ Si no hay nada de esto, ponte en contacto con el proveedor para que te vuelva a 
 - Es recomendable mantener el número de puertos abiertos al mínimo necesario
 
 - Considera usar rangos de IPs permitidas para servicios críticos si es posible
+
+## 4. ACTUALIZAR EL SISTEMA
+
+Vamos a aplicar las actualizaciones pendientes por si hay algún parche de seguridad disponible que se deba aplicar. Para ello vamos a realizar `update` de `apt` (aptitude) que es el gestor de paquetes de `Ubuntu` y después `upgrade` para aplicar las actualizaciones. El gestor de paquetes de Rocky Linux es `dfn`, aunque aquí solo voy a presentar la instalación con `apt` no debería de diferenciarse mucho si se usa `dfn`.
+
+```bash
+sudo apt update && upgrade -y
+```
+
+Es posible y recomendable que tengamos que reiniciar el sistema
+
+```bash
+sudo reboot
+```
+
+## 5. INSTALAR NODE
+
+Para instalar Node.js en nuestro servidor, tenemos varias opciones. La recomendada es usar el gestor de versiones NVM (Node Version Manager) que nos permitirá instalar y gestionar múltiples versiones de Node.js. Esto a su vez nos va a permitir poder levantar servidores con distintas versiones de Node dentro de un mismo servidor.
+
+### 5.1 Instalar NVM
+
+Primero, descargamos y ejecutamos el script bash de la instalación de NVM con la última versión, pero es recomendable que consultes el [repositorio de nvm](https://github.com/nvm-sh/nvm/) para averiguar cual es la última versión actual de nvm.
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+```
+
+Después de instalar reiniciamos la terminal o ejecutamos para que se refresque y poder tener disponible el comando `nvm`:
+
+```bash
+source ~/.bashrc
+```
+
+### 5.2 Verificar la instalación de NVM
+
+```bash
+nvm --version
+```
+
+### 5.3 Instalar Node.js
+
+Para instalar la última versión LTS de node (recomendada para producción):
+
+```bash
+nvm install --lts
+```
+
+O si necesitas una versión específica:
+
+```bash
+nvm install 20.11.1  # Por ejemplo, para instalar la versión 20.11.1
+```
+
+O si quieres instalar la última versión 22 (Opción de uso recomendable para cuando necesites varias versiones de Node):
+
+```bash
+nvm install 22  # Por ejemplo, para instalar la versión 22.##.#
+```
+
+Node utiliza como versiones LTS los números pares. Actualmente las LTS son la 22, la 20 sigue en mantenimiento y la 18 está en proceso de ser deprecada y de dejar de mantenerse. Es recomendable usar estas versiones de Node porque siguen recibiendo actualizaciones de seguridad.
+
+### 5.4 Verificar la instalación
+
+```bash
+node --version
+npm --version
+```
+
+### 5.5 Comandos útiles de NVM
+
+```bash
+nvm ls                 # Listar versiones instaladas
+nvm use 16.20.0        # Cambiar a una versión específica
+nvm use 20             # Cambiar a la última versión LTS instalada que comience con 20
+nvm current            # Ver versión actual en uso
+```
+
+## 6. INSTALAR NGINX
+
+NGINX será nuestro servidor reverse proxy que gestionará todas las peticiones entrantes y las redirigirá a nuestros servidores Node.js locales.
+
+### 6.1 Instalación de NGINX
+
+```bash
+# Actualizamos el repositorio para tener la última versión
+sudo apt update
+
+# Instalamos NGINX
+sudo apt install nginx -y
+```
+
+Esto ejecutará el instalador con las opciones por defecto, que son las necesarias para nuestro uso. NGINX se instalará como un servicio de nuestro servidor. Para interactuar con este servicio y con todos los servicios instalados en el servidor usaremos la herramienta `systemctl`
+
+### 6.2 Verificar la instalación
+
+```bash
+# Comprobar el estado del servicio
+sudo systemctl status nginx
+```
+
+Debería salir un texto con un punto verde donde nos dice si el servicio está funcionando, si está `enabled` (Es decir, si está habilitado y por tanto se iniciará automáticamente con cada reinicio del sistema) y las últimas salidas de consola de la aplicación.
+
+### 6.3 Comandos básicos de gestión
+
+```bash
+# Iniciar NGINX
+sudo systemctl start nginx
+
+# Detener NGINX
+sudo systemctl stop nginx
+
+# Reiniciar NGINX
+sudo systemctl restart nginx
+
+# Recargar la configuración sin detener el servicio (Últil cuando hemos realizado modificaciones de configuración y queremos que se ejecuten sin reiniciar el servicio)
+sudo systemctl reload nginx
+
+# Habilitar NGINX para que se inicie con el sistema
+sudo systemctl enable nginx
+```
+
+### 6.4 Verificar el firewall
+
+Asegúrate de que NGINX puede recibir tráfico permitiendo los puertos HTTP y HTTPS (En teoría este paso ya lo deberíamos haber realizado, pero no está de más asegurarse permitiendo acceso a la aplicación a través del firewall):
+
+```bash
+sudo ufw allow 'Nginx Full'
+```
+
+### 6.5 Verificar la instalación y funcionamiento
+
+Abre un navegador y visita la IP de tu servidor. Deberías ver la página de bienvenida por defecto de NGINX. En este momento ya tendrías el servidor web de NGINX funcionando.
