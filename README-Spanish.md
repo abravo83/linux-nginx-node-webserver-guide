@@ -424,3 +424,274 @@ sudo ufw allow 'Nginx Full'
 ### 6.5 Verificar la instalación y funcionamiento
 
 Abre un navegador y visita la IP de tu servidor. Deberías ver la página de bienvenida por defecto de NGINX. En este momento ya tendrías el servidor web de NGINX funcionando.
+
+## 7. INSTALAR EL SERVIDOR DE BASE DE DATOS
+
+La elección del servidor de base de datos dependerá de las necesidades específicas de tu proyecto. Aquí cubriremos la instalación tanto de MySQL como de MongoDB, que son las opciones más comunes.
+
+### 7.1 Instalación de MySQL
+
+```bash
+# Actualizar repositorios
+sudo apt update
+
+# Instalar MySQL Server
+sudo apt install mysql-server -y
+
+# Iniciar el servicio MySQL
+sudo systemctl start mysql
+
+# Habilitar MySQL para que inicie con el sistema
+sudo systemctl enable mysql
+
+# Ejecutar el script de seguridad de MySQL
+sudo mysql_secure_installation
+```
+
+Durante la ejecución de `mysql_secure_installation`, se te harán varias preguntas:
+
+- Configurar la validación de contraseña (recomendado: Y)
+- Nivel de validación de contraseña (recomendado: 2)
+- Cambiar la contraseña de root
+- Eliminar usuarios anónimos (recomendado: Y)
+- Deshabilitar acceso root remoto (recomendado: Y)
+- Eliminar base de datos de prueba (recomendado: Y)
+- Recargar privilegios (recomendado: Y)
+
+### 7.2 Instalación de MongoDB
+
+[Instrucciones de instalación oficiales](https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/)
+
+```bash
+# Importar la clave pública de MongoDB
+curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+   sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg \
+   --dearmor
+
+# Crear archivo de lista del repositorio en Ubuntu 24 para MongoDB (Consulta la guía para otras versiones)
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+
+# Actualizar el repositorio
+sudo apt update
+
+# Instalar MongoDB
+sudo apt install -y mongodb-org
+
+# Iniciar el servicio MongoDB
+sudo systemctl start mongod
+
+# Habilitar MongoDB para que inicie con el sistema
+sudo systemctl enable mongod
+```
+
+### 7.3 Verificación de la instalación
+
+Para MySQL:
+
+```bash
+# Verificar estado del servicio
+sudo systemctl status mysql
+
+# Verificar versión
+mysql --version
+```
+
+Para MongoDB:
+
+```bash
+# Verificar estado del servicio
+sudo systemctl status mongod
+
+# Verificar versión
+mongod --version
+```
+
+### 7.4 Consideraciones de seguridad importantes
+
+#### 7.4.1 **Acceso remoto**:
+
+Por defecto, tanto MySQL como MongoDB solo escuchan conexiones locales (127.0.0.1). Es recomendable mantener esta configuración si tu API está en el mismo servidor.
+
+#### 7.4.2 **Puertos y Firewall**:
+
+SI aún así quieres dar acceso externo, por seguridad, es recomendable cambiar los puertos por defecto de las bases de datos:
+
+Para MySQL (cambiar puerto 3306):
+
+```bash
+# Editar la configuración de MySQL
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+
+# Buscar o añadir la línea:
+port = 3307  # O el puerto que prefieras
+
+# Reiniciar MySQL
+sudo systemctl restart mysql
+```
+
+Para MongoDB (cambiar puerto 27017):
+
+```bash
+# Editar la configuración de MongoDB
+sudo nano /etc/mongod.conf
+
+# Buscar la sección net: y modificar el puerto:
+net:
+  port: 27018  # O el puerto que prefieras
+
+# Buscar la sección bindIp y modificar la ip a la que se escucha:
+
+bindIp: \* # Escuchará a todas las ips
+bindIp: 127.0.0.1 # Escuchará solo al propio servidor de manera local
+
+# Reiniciar MongoDB
+
+sudo systemctl restart mongod
+```
+
+Después deberás abrir los nuevos puertos en tu firewall:
+
+```bash
+# Para MySQL (ejemplo con puerto 3307)
+sudo ufw allow 3307/tcp
+
+# Para MongoDB (ejemplo con puerto 27018)
+sudo ufw allow 27018/tcp
+```
+
+---
+
+⚠️ **IMPORTANTE**:
+
+- Documenta los nuevos puertos en un lugar seguro
+- Actualiza la configuración de conexión en tus aplicaciones
+- Considera usar un puerto no estándar para dificultar el escaneo automático
+- Aun así, es preferible mantener el acceso solo a nivel local
+
+---
+
+#### 7.4.3 **Usuarios y permisos**: Crea usuarios específicos para tus aplicaciones con los mínimos privilegios necesarios:
+
+Para MySQL:
+
+```bash
+sudo mysql
+```
+
+```sql
+CREATE USER 'tuusuario'@'localhost' IDENTIFIED BY 'tucontraseña';
+GRANT ALL PRIVILEGES ON tubasededatos.* TO 'tuusuario'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+Para MongoDB:
+
+```bash
+mongosh
+```
+
+```javascript
+use admin
+db.createUser({
+  user: "tuusuario",
+  pwd: "tucontraseña",
+  roles: [{ role: "readWrite", db: "tubasededatos" }]
+})
+```
+
+⚠️ **IMPORTANTE**:
+
+- Usa contraseñas fuertes y únicas
+- Evita usar el usuario root/admin para las aplicaciones
+- Mantén las bases de datos actualizadas con los últimos parches de seguridad
+- Realiza backups regulares
+- Si es posible, mantén las conexiones solo a nivel local (localhost / 127.0.0.1)
+
+#### 7.4.4 **MySQL: Realiza las operaciones necesarias para crear la estructura (y datos si ya tuvieras) de las bases de datos de tus aplicaciones**:
+
+Si ya tienes una base de datos creada en tu ordenador es el momento de exportar su estructura y datos via consulta SQL y transferirla al servidor usando SFTP (Mismo acceso que SSH, puerto incluido si lo has modificado) para poder ejecutarla en el servidor para que te cree la base de datos y los datos que hayas exportado.
+
+El usuario sería el usuario de base de datos que has creado en el punto anterior para esta base de datos. No confundir con el usuario del sistema que vamos a crear en el siguiente punto.
+
+```bash
+# Primero crear la base de datos si no existe
+mysql -u tuusuariodebasededatos -p -e "CREATE DATABASE IF NOT EXISTS nombre_base_datos;"
+
+# Luego importar el archivo
+mysql -u tuusuariodebasededatos -p nombre_base_datos < backup.sql
+```
+
+## 8. CREAR USUARIO SIN PRIVILEGIOS PARA LOS SERVIDORES NODE Y ESTRUCTURA DE CARPETAS
+
+Por razones de seguridad, es una buena práctica ejecutar nuestros servidores Node.js bajo un usuario sin privilegios de administrador. Esto limita el daño potencial en caso de que una de nuestras aplicaciones sea comprometida.
+
+### 8.1 Crear el nuevo usuario (modifica nodeuser por el nombre que prefieras)
+
+```bash
+# Crear usuario sin directorio home
+sudo useradd --no-create-home nodeuser
+
+# O si prefieres crear el directorio home (opcional)
+sudo useradd --create-home nodeuser
+
+# Establecer una contraseña (aunque no la necesitaremos para ejecutar servicios)
+sudo passwd nodeuser
+```
+
+### 8.2 Crear y configurar el directorio para las aplicaciones
+
+```bash
+# Crear directorio para las aplicaciones
+sudo mkdir -p /var/www/nodeapps
+
+# Establecer nodeuser como propietario
+sudo chown -R nodeuser:nodeuser /var/www/nodeapps
+
+# Establecer permisos adecuados
+sudo chmod -R 755 /var/www/nodeapps
+```
+
+### 8.3 Verificar la configuración
+
+```bash
+# Verificar propietario y permisos
+ls -la /var/www/nodeapps
+
+# Probar acceso como nodeuser
+sudo -u nodeuser ls -la /var/www/nodeapps
+```
+
+### 8.4 Consideraciones importantes
+
+- El usuario `nodeuser` no podrá ejecutar comandos con `sudo`
+- Solo podrá acceder y modificar archivos dentro de `/var/www/nodeapps`
+- A la hora de transferir archivos via SFTP a `/var/www/nodeapps` es recomendable usar `nodeuser` para que ese usuario sea el propietario de esos archivos transferidos.
+- Los servicios de Node.js se ejecutarán bajo este usuario
+- Para realizar operaciones que requieran más privilegios, deberás usar tu usuario con privilegios sudo
+
+### 8.5 Estructura recomendada de directorios (modificar myapp# por el nombre que identifique tu proyecto)
+
+Vamos a crear, aparte de nuestros directorios que contendrán los proyectos webs, un directorio donde guardaremos los scripts que inicio del servicio web para cada proyecto.
+
+```bash
+/var/www/nodeapps/
+├── myapp1/
+│   ├── src/
+│   └── node_modules/
+├── myapp2/
+│   ├── src/
+│   └── node_modules/
+└── start_scripts
+```
+
+Para crear esta estructura:
+
+```bash
+# Crear directorios para las aplicaciones
+sudo -u nodeuser mkdir -p /var/www/nodeapps/myapp1
+sudo -u nodeuser mkdir -p /var/www/nodeapps/myapp2
+sudo -u nodeuser mkdir -p /var/www/nodeapps/start_scripts
+
+# Verificar la estructura
+tree /var/www/nodeapps
+```
