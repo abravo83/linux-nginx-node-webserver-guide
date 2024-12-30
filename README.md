@@ -424,3 +424,273 @@ sudo ufw allow 'Nginx Full'
 ### 6.5 Verify installation and operation
 
 Open a browser and visit your server's IP. You should see NGINX's default welcome page. At this point, you would have the NGINX web server running.
+
+## 7. INSTALL THE DATABASE SERVER
+
+The choice of database server will depend on the specific needs of your project. Here we'll cover the installation of both MySQL and MongoDB, which are the most common options.
+
+### 7.1 MySQL Installation
+
+```bash
+# Update repositories
+sudo apt update
+
+# Install MySQL Server
+sudo apt install mysql-server -y
+
+# Start MySQL service
+sudo systemctl start mysql
+
+# Enable MySQL to start with the system
+sudo systemctl enable mysql
+
+# Run MySQL security script
+sudo mysql_secure_installation
+```
+
+During the execution of `mysql_secure_installation`, you'll be asked several questions:
+
+- Configure password validation (recommended: Y)
+- Password validation level (recommended: 2)
+- Change root password
+- Remove anonymous users (recommended: Y)
+- Disable root remote access (recommended: Y)
+- Remove test database (recommended: Y)
+- Reload privileges (recommended: Y)
+
+### 7.2 MongoDB Installation
+
+[Official installation instructions](https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/)
+
+```bash
+# Import MongoDB public key
+curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+   sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg \
+   --dearmor
+
+# Create repository list file for Ubuntu 24 for MongoDB (Check guide for other versions)
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+
+# Update repository
+sudo apt update
+
+# Install MongoDB
+sudo apt install -y mongodb-org
+
+# Start MongoDB service
+sudo systemctl start mongod
+
+# Enable MongoDB to start with the system
+sudo systemctl enable mongod
+```
+
+### 7.3 Verify Installation
+
+For MySQL:
+
+```bash
+# Check service status
+sudo systemctl status mysql
+
+# Check version
+mysql --version
+```
+
+For MongoDB:
+
+```bash
+# Check service status
+sudo systemctl status mongod
+
+# Check version
+mongod --version
+```
+
+### 7.4 Important Security Considerations
+
+#### 7.4.1 **Remote Access**:
+
+By default, both MySQL and MongoDB only listen to local connections (127.0.0.1). It's recommended to maintain this configuration if your API is on the same server.
+
+#### 7.4.2 **Ports and Firewall**:
+
+If you still want to enable external access, for security reasons, it's recommended to change the default database ports:
+
+For MySQL (change port 3306):
+
+```bash
+# Edit MySQL configuration
+sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+
+# Find or add the line:
+port = 3307  # Or your preferred port
+
+# Restart MySQL
+sudo systemctl restart mysql
+```
+
+For MongoDB (change port 27017):
+
+```bash
+# Edit MongoDB configuration
+sudo nano /etc/mongod.conf
+
+# Find the net: section and modify the port:
+net:
+  port: 27018  # Or your preferred port
+
+# Find the bindIp section and modify the listening IP:
+
+bindIp: \* # Will listen to all IPs
+bindIp: 127.0.0.1 # Will only listen locally to the server itself
+
+# Restart MongoDB
+sudo systemctl restart mongod
+```
+
+Then you'll need to open the new ports in your firewall:
+
+```bash
+# For MySQL (example with port 3307)
+sudo ufw allow 3307/tcp
+
+# For MongoDB (example with port 27018)
+sudo ufw allow 27018/tcp
+```
+
+---
+
+⚠️ **IMPORTANT**:
+
+- Document the new ports in a secure location
+- Update the connection configuration in your applications
+- Consider using a non-standard port to make automatic scanning more difficult
+- Still, it's preferable to maintain access only at the local level
+
+---
+
+#### 7.4.3 **Users and Permissions**: Create specific users for your applications with minimal necessary privileges:
+
+For MySQL:
+
+```bash
+sudo mysql
+```
+
+```sql
+CREATE USER 'youruser'@'localhost' IDENTIFIED BY 'yourpassword';
+GRANT ALL PRIVILEGES ON yourdatabase.* TO 'youruser'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+For MongoDB:
+
+```bash
+mongosh
+```
+
+```javascript
+use admin
+db.createUser({
+  user: "youruser",
+  pwd: "yourpassword",
+  roles: [{ role: "readWrite", db: "yourdatabase" }]
+})
+```
+
+⚠️ **IMPORTANT**:
+
+- Use strong and unique passwords
+- Avoid using root/admin user for applications
+- Keep databases updated with the latest security patches
+- Perform regular backups
+- If possible, maintain connections only at the local level (localhost / 127.0.0.1)
+
+#### 7.4.4 **MySQL: Perform necessary operations to create the structure (and data if you already have it) of your application databases**:
+
+If you already have a database created on your computer, now is the time to export its structure and data via SQL query and transfer it to the server using SFTP (Same access as SSH, including port if you modified it) to be able to execute it on the server to create the database and the data you exported.
+
+The user would be the database user you created in the previous point for this database. Don't confuse it with the system user we're going to create in the next point.
+
+```bash
+# First create the database if it doesn't exist
+mysql -u yourdatabaseuser -p -e "CREATE DATABASE IF NOT EXISTS database_name;"
+
+# Then import the file
+mysql -u yourdatabaseuser -p database_name < backup.sql
+```
+
+## 8. CREATE UNPRIVILEGED USER FOR NODE SERVERS AND FOLDER STRUCTURE
+
+For security reasons, it's good practice to run our Node.js servers under a user without administrator privileges. This limits potential damage in case one of our applications is compromised.
+
+### 8.1 Create new user (modify nodeuser with your preferred name)
+
+```bash
+# Create user without home directory
+sudo useradd --no-create-home nodeuser
+
+# Or if you prefer to create home directory (optional)
+sudo useradd --create-home nodeuser
+
+# Set a password (although we won't need it to run services)
+sudo passwd nodeuser
+```
+
+### 8.2 Create and configure directory for applications
+
+```bash
+# Create directory for applications
+sudo mkdir -p /var/www/nodeapps
+
+# Set nodeuser as owner
+sudo chown -R nodeuser:nodeuser /var/www/nodeapps
+
+# Set appropriate permissions
+sudo chmod -R 755 /var/www/nodeapps
+```
+
+### 8.3 Verify configuration
+
+```bash
+# Verify owner and permissions
+ls -la /var/www/nodeapps
+
+# Test access as nodeuser
+sudo -u nodeuser ls -la /var/www/nodeapps
+```
+
+### 8.4 Important considerations
+
+- The `nodeuser` won't be able to execute commands with `sudo`
+- It can only access and modify files within `/var/www/nodeapps`
+- When transferring files via SFTP to `/var/www/nodeapps`, it's recommended to use `nodeuser` so that user is the owner of those transferred files
+- Node.js services will run under this user
+- For operations requiring more privileges, you'll need to use your user with sudo privileges
+
+### 8.5 Recommended directory structure (modify myapp# with the name that identifies your project)
+
+We'll create, besides our directories that will contain the web projects, a directory where we'll store the web service startup scripts for each project.
+
+```bash
+/var/www/nodeapps/
+├── myapp1/
+│   ├── src/
+│   └── node_modules/
+├── myapp2/
+│   ├── src/
+│   └── node_modules/
+└── start_scripts
+```
+
+To create this structure:
+
+```bash
+# Create directories for applications
+sudo -u nodeuser mkdir -p /var/www/nodeapps/myapp1
+sudo -u nodeuser mkdir -p /var/www/nodeapps/myapp2
+sudo -u nodeuser mkdir -p /var/www/nodeapps/start_scripts
+
+# Verify structure
+tree /var/www/nodeapps
+```
