@@ -695,3 +695,143 @@ sudo -u nodeuser mkdir -p /var/www/nodeapps/start_scripts
 # Verificar la estructura
 tree /var/www/nodeapps
 ```
+
+Ya te quedaría transferir los proyectos a cada carpeta usando sftp y utilizando `nodeuser` como usuario con el que realizar la conexión y transferencia para que sea el propietario de dichos archivos.
+
+## 9. CREAR SCRIPTS BASH PARA INICIAR LOS SERVIDORES NODE
+
+Los scripts bash nos ayudarán a gestionar el inicio de nuestras aplicaciones Node.js de manera consistente y organizada. Crearemos un script para cada aplicación que necesitemos ejecutar.
+
+### 9.1 Crear los scripts de inicio
+
+Para cada aplicación, crearemos un script bash en el directorio `/var/www/nodeapps/start_scripts` que nos va a permitir especificar la versión de node que queremos usar con nuestra aplicación.
+
+```bash
+# Crear script para la primera aplicación
+sudo nano /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+Contenido del script (ajusta según tu aplicación - la primera línea le dice al sistema que es un script de bash):
+
+```bash:start_myapp1.sh
+#!/bin/bash
+
+# Definir el comando nvm dentro del script
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# Establecer la versión de Node.js
+nvm use 20  # O la versión que necesites
+
+# Iniciar la aplicación con el comando node o npm que necesites.
+node /var/www/nodeapps/myapp1/src/index.js
+```
+
+Alternativamente, si quieres guardar y gestionar logs puedes sacar la salida por consola y los errores a un archivo modificando la última línea por la siguiente:
+
+```bash
+# Iniciar la aplicación
+node /var/www/nodeapps/myapp1/src/index.js >> /var/www/nodeapps/myapp1.log 2>&1
+```
+
+Pero en este caso recuerda que debes de gestionar estos archivos de algún modo ya van a crecer sin límite.
+
+En todo caso, si no estableces una salida a log vas a poder consultar igualmente logs de errores en `journalctl`, pero estos se suelen limitar en tamaño y días. Por lo que se borrarán automáticamente pasados varios días y no ocuparán cualquier tamaño
+
+Puedes consultar la configuración actual de `journalctl` así:
+
+```bash
+# Ver la configuración actual del systemd-journald
+sudo systemctl show systemd-journald
+```
+
+### 9.2 Configurar permisos
+
+```bash
+# Dar permisos de ejecución al script
+sudo chmod +x /var/www/nodeapps/start_scripts/start_myapp1.sh
+
+# Asignar propiedad a nodeuser
+sudo chown nodeuser:nodeuser /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+### 9.3 Probar el script, para ver si arranca el servidor
+
+```bash
+# Ejecutar el script como nodeuser
+sudo -u nodeuser /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+## 10. CREAR SERVICIOS SYSTEMD PARA LOS SERVIDORES NODE
+
+Para asegurarnos de que nuestras aplicaciones Node.js se ejecuten automáticamente al iniciar el servidor y se reinicien en caso de fallo, crearemos servicios systemd para cada una de ellas.
+
+### 10.1 Crear el archivo de servicio
+
+Para cada aplicación, crearemos un archivo de servicio en `/etc/systemd/system/`:
+
+```bash
+sudo nano /etc/systemd/system/myapp1.service
+```
+
+Contenido del archivo de servicio:
+
+```ini:/etc/systemd/system/myapp1.service
+[Unit]
+Description=MyApp1 Web Server
+After=network.target
+
+[Service]
+User=nodeuser
+ExecStart=/var/www/nodeapps/start_scripts/start_myapp1.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 10.2 Explicación de las opciones del servicio
+
+- `Description`: Descripción del servicio
+- `After`: Indica que el servicio debe iniciarse después de que la red esté disponible
+- `User`: Usuario bajo el cual se ejecutará el servicio
+- `ExecStart`: Ruta al script que inicia la aplicación
+- `Restart`: Política de reinicio (always = reiniciar siempre que el servicio se detenga)
+- `WantedBy`: Momento en que se inicia el servicio. (Cuando el sistema alcanza estado multi-usuario - los usuarios pueden iniciar sesión en el sistema - Necesario para inicio automático )
+
+### 10.3 Habilitar y gestionar el servicio
+
+```bash
+# Recargar la configuración de systemd para que cargue el fichero creado
+sudo systemctl daemon-reload
+
+# Iniciar el servicio
+sudo systemctl start myapp1.service
+
+# Habilitar el servicio para que se inicie con el sistema
+sudo systemctl enable myapp1.service
+
+```
+
+Otros comandos útiles para gestionar el servicio
+
+```bash
+# Parar el servicio
+sudo systemctl stop myapp1.service
+
+# Verificar el estado del servicio
+sudo systemctl status myapp1.service
+```
+
+### 10.4 Comandos útiles para gestionar el servicio
+
+```bash
+# Detener el servicio
+sudo systemctl stop myapp1.service
+
+# Reiniciar el servicio
+sudo systemctl restart myapp1.service
+
+# Ver los logs del servicio -hay que desplazarse abajo para ver los más recientes-
+sudo journalctl -u myapp1.service
+```
