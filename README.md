@@ -694,3 +694,142 @@ sudo -u nodeuser mkdir -p /var/www/nodeapps/start_scripts
 # Verify structure
 tree /var/www/nodeapps
 ```
+
+Now you would need to transfer the projects to each folder using sftp and using `nodeuser` as the user to perform the connection and transfer so that it becomes the owner of those files.
+
+## 9. CREATE BASH SCRIPTS TO START NODE SERVERS
+
+Bash scripts will help us manage the startup of our Node.js applications in a consistent and organized way. We'll create a script for each application we need to run.
+
+### 9.1 Create startup scripts
+
+For each application, we'll create a bash script in the `/var/www/nodeapps/start_scripts` directory that will allow us to specify which node version we want to use with our application.
+
+```bash
+# Create script for the first application
+sudo nano /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+Script content (adjust according to your application - the first line tells the system it's a bash script):
+
+```bash:start_myapp1.sh
+#!/bin/bash
+
+# Define the nvm command within the script
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+# Set Node.js version
+nvm use 20  # Or the version you need
+
+# Start the application with the node or npm command you need
+node /var/www/nodeapps/myapp1/src/index.js
+```
+
+Alternatively, if you want to save and manage logs, you can output the console and errors to a file by modifying the last line to:
+
+```bash
+# Start the application
+node /var/www/nodeapps/myapp1/src/index.js >> /var/www/nodeapps/myapp1.log 2>&1
+```
+
+But in this case remember that you need to manage these files somehow as they will grow without limit.
+
+In any case, if you don't set a log output you can still check error logs in `journalctl`, but these are usually limited in size and days. So they will be automatically deleted after several days and won't take up unlimited space.
+
+You can check the current `journalctl` configuration like this:
+
+```bash
+# View current systemd-journald configuration
+sudo systemctl show systemd-journald
+```
+
+### 9.2 Configure permissions
+
+```bash
+# Give execution permissions to the script
+sudo chmod +x /var/www/nodeapps/start_scripts/start_myapp1.sh
+
+# Assign ownership to nodeuser
+sudo chown nodeuser:nodeuser /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+### 9.3 Test the script to see if it starts the server
+
+```bash
+# Run the script as nodeuser
+sudo -u nodeuser /var/www/nodeapps/start_scripts/start_myapp1.sh
+```
+
+## 10. CREATE SYSTEMD SERVICES FOR NODE SERVERS
+
+To ensure our Node.js applications run automatically when the server starts and restart in case of failure, we'll create systemd services for each of them.
+
+### 10.1 Create the service file
+
+For each application, we'll create a service file in `/etc/systemd/system/`:
+
+```bash
+sudo nano /etc/systemd/system/myapp1.service
+```
+
+Service file content:
+
+```ini:/etc/systemd/system/myapp1.service
+[Unit]
+Description=MyApp1 Web Server
+After=network.target
+
+[Service]
+User=nodeuser
+ExecStart=/var/www/nodeapps/start_scripts/start_myapp1.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 10.2 Service options explanation
+
+- `Description`: Service description
+- `After`: Indicates that the service should start after the network is available
+- `User`: User under which the service will run
+- `ExecStart`: Path to the script that starts the application
+- `Restart`: Restart policy (always = restart whenever the service stops)
+- `WantedBy`: When the service starts (When system reaches multi-user state - users can log into the system - Required for automatic startup)
+
+### 10.3 Enable and manage the service
+
+```bash
+# Reload systemd configuration to load the created file
+sudo systemctl daemon-reload
+
+# Start the service
+sudo systemctl start myapp1.service
+
+# Enable the service to start with the system
+sudo systemctl enable myapp1.service
+```
+
+Other useful commands to manage the service:
+
+```bash
+# Stop the service
+sudo systemctl stop myapp1.service
+
+# Check service status
+sudo systemctl status myapp1.service
+```
+
+### 10.4 Useful commands to manage the service
+
+```bash
+# Stop the service
+sudo systemctl stop myapp1.service
+
+# Restart the service
+sudo systemctl restart myapp1.service
+
+# View service logs -scroll down to see the most recent-
+sudo journalctl -u myapp1.service
+```
