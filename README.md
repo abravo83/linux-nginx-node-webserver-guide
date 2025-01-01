@@ -833,3 +833,332 @@ sudo systemctl restart myapp1.service
 # View service logs -scroll down to see the most recent-
 sudo journalctl -u myapp1.service
 ```
+
+## 11. CONFIGURING DOMAINS AND SUBDOMAINS
+
+For our domains and subdomains to point to our server, we need to configure the corresponding DNS records. This process is done through your domain provider's control panel.
+
+There you'll find a DNS/Nameservers section where you can edit the current records of a specific domain and add the necessary ones. You may already have an A record with name @ that you'll need to edit and then add an A record with name `api` or the subdomain.
+
+Remember to check existing records before adding to avoid duplicate records. If you migrate the hosting server in the future, remember to come back here to modify the records pointing to the new IP.
+
+### 11.1 Required DNS Record Types
+
+#### A Record (Recommended for faster response)
+
+- Points a domain or subdomain directly to an IP address
+- It's the most common record type and works for both main domain and subdomains
+- Resolves faster than CNAME
+
+```text
+Type: A
+Name: @
+IP: 123.123.123.123
+TTL: 3600
+
+# Subdomain using A record
+Type: A
+Name: api
+IP: 123.123.123.123
+TTL: 3600
+```
+
+#### CNAME Record (As an alternative to using an A record for a subdomain - DON'T USE BOTH FOR A SUBDOMAIN, use one or the other)
+
+- Points a subdomain to another domain
+- Useful for creating multiple subdomains
+- If you change the main one, the CNAME doesn't need modification, as CNAME adjusts to a main A record.
+
+```text
+Type: CNAME
+Name: api         // Will create api.yourdomain.com
+Target: @         // Points to the main domain
+```
+
+### 11.2 Typical Configuration for a Website with Main Domain and API as Subdomain using CNAME
+
+For example, to configure `mydomain.com` and `api.mydomain.com`:
+
+```text
+# Main domain
+Type: A
+Name: @
+IP: 123.123.123.123
+TTL: 300
+
+# www subdomain
+Type: CNAME
+Name: www
+Target: @
+TTL: 300
+
+# API subdomain
+Type: CNAME
+Name: api
+Target: @
+TTL: 300
+```
+
+### 11.3 Important Considerations
+
+- DNS changes can take up to 48 hours to propagate globally (TTL - Time To Live) but usually take just a few minutes.
+- It's recommended to start with a low TTL (100-300 seconds) during initial setup in case you need to make a change so propagation takes less time.
+- Once stable, you can increase the TTL (3600 seconds is a common setting)
+
+## 12. CONFIGURING NGINX AS A REVERSE PROXY
+
+At this point, we should have our node services running locally and our NGINX web server returning the default web page.
+
+To check if the node servers are running correctly, we can temporarily open their port in the firewall and check with the browser if it's working by going to the domain and directly to the node port.
+
+```bash
+# To access the node running on 3010
+sudo ufw allow 3010/tcp
+```
+
+Then with the browser we open the address and port with http `http://mydomain.com:3010`
+
+Once checked, we should close the port again
+
+```bash
+sudo ufw delete allow 3010/tcp
+```
+
+Now we're going to make NGINX act as a reverse proxy, and have it redirect incoming requests to different Node.js servers based on the requested domain or subdomain.
+
+### 12.1 Simple NGINX Configuration Structure
+
+We can follow two structures: we can modify the current configuration file directly or add individual configuration files.
+
+The first method is valid for a server with few node services, the second is recommended to maintain everything better if the server grows.
+
+With the first one, we'll edit the configuration file and add our servers
+
+First, we'll make a backup of the configuration file
+
+```bash
+sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default-backup
+```
+
+Then we open the configuration file with nano
+
+```bash
+sudo nano /etc/nginx/sites-available/default
+```
+
+We'll go to the line that says `#Default server configuration` and we'll insert above it (leaving everything above and below this line intact as reference) our configuration of a server listening on port 80:
+
+```text
+server {
+    listen 80;
+    server_name www.mydomain.com mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3010;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+With this, we have configured requests coming from the browser address http://www.mydomain.com with and without www to be directed to the node running on 3010. Now we want HTTPS requests to be directed to the same. We add below the closing brace another block but for port 443.
+
+```text
+server {
+    listen 443 http2;
+    server_name www.mydomain.com mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3010;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+We've now added the configuration for the main domain and its www subdomain. Now let's add the configuration for the subdomain api.mydomain.com pointing to the node running on port 3020 in the same way, but being careful to ADD IT ABOVE the main one so that the forwarding executes before the main one.
+
+```text
+server {
+    listen 80;
+    server_name api.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3020;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+    listen 443 http2;
+    server_name api.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3020;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+Save the file and verify and reload the nginx configuration to load the changes.
+
+```bash
+# Verify that the syntax is correct
+sudo nginx -t
+
+# Reload NGINX to apply changes
+sudo systemctl reload nginx
+```
+
+### 12.2 More Scalable NGINX Configuration Structure
+
+NGINX configuration is organized in several directories:
+
+```bash
+/etc/nginx/
+├── nginx.conf              # Main configuration
+├── sites-available/        # Available site configurations
+└── sites-enabled/         # Symbolic links to active configurations
+```
+
+For each application, we'll create a configuration file in sites-available leaving the `/etc/nginx/sites-available/default` file intact. In this case, we'll create a file in that same folder with the application name:
+
+```bash
+sudo nano /etc/nginx/sites-available/myapp1
+```
+
+And we write the basic configuration for a web application:
+
+```nginx:/etc/nginx/sites-available/myapp1
+server {
+    listen 80;
+    server_name mydomain.com www.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3010;  # Port where your Node app listens
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+    listen 443 http2;
+    server_name mydomain.com www.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3010;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+For an API on subdomain api.mydomain.com:
+
+```bash
+sudo nano /etc/nginx/sites-available/myapp1-api
+```
+
+```nginx:/etc/nginx/sites-available/myapp1-api
+server {
+    listen 80;
+    server_name api.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3020;  # Port where your API listens
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+    listen 443 http2;
+    server_name api.mydomain.com;
+
+    location / {
+        proxy_pass http://localhost:3020;
+        proxy_http_version 1.1;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+#### Activate the Configurations
+
+Create symbolic links in sites-enabled to activate these configurations:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/myapp1 /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/myapp1-api /etc/nginx/sites-enabled/
+```
+
+#### Verify and Reload the Configuration
+
+```bash
+# Verify that the syntax is correct
+sudo nginx -t
+
+# Reload NGINX to apply changes
+sudo systemctl reload nginx
+```
+
+And thus, following this process of adding configuration files and enabling them by including their symbolic link in the `sites-enabled` folder, we can keep including subsequent node web servers to forward requests to.
+
+### 12.3 Server Improvements
+
+We can include configurations like adding compression or others to improve performance
+
+```nginx:/etc/nginx/sites-available/myapp1
+server {
+    # ... basic configuration ...
+
+    # Enable gzip compression (Recommended)
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_min_length 1000;
+
+    # Cache for static files (Only if website content doesn't change often)
+    location /static/ {
+        expires 1y;
+        add_header Cache-Control "public, no-transform";
+    }
+}
+```
