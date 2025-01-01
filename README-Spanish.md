@@ -1164,3 +1164,307 @@ server {
     }
 }
 ```
+
+## 13. CONFIGURAR CERTBOT PARA GESTIÓN DE CERTIFICADOS SSL
+
+Certbot es una herramienta que automatiza el proceso de obtención y renovación de certificados SSL gratuitos de Let's Encrypt.
+
+### 13.1 Instalar Certbot y el plugin de NGINX
+
+```bash
+# Actualizar repositorios
+sudo apt update
+
+# Instalar Certbot y su plugin para NGINX
+sudo apt install certbot python3-certbot-nginx -y
+```
+
+### 13.2 Obtener certificados SSL
+
+Hay dos formas de obtener los certificados:
+
+#### Opción 1: Obtención automática (Recomendada)
+
+Esta opción modificará automáticamente la configuración de NGINX. Es decir, que escribirá en los archivos de configuración en los que has incluido la escucha para ese dominio y el puerto 443 agregando la opción SSL y la ruta a donde se han colocado los certificados.
+
+Para realizar la instalación con renovación automática de los tres dominios usaremos este comandos:
+
+```bash
+sudo certbot --nginx -d midominio.com -d www.midominio.com -d api.midominio.com
+```
+
+#### Opción 2: Obtención manual (No recomendado)
+
+Si prefieres gestionar manualmente la configuración de NGINX, no tendrás renovación automática y deberas repetir el proceso cada 3 meses:
+
+```bash
+sudo certbot certonly --nginx -d midominio.com -d www.midominio.com -d api.midominio.com
+```
+
+Durante el proceso (Tanto automático como manual):
+
+- Se te pedirá un correo electrónico para notificaciones importantes
+- Deberás aceptar los términos de servicio
+- Elegir si quieres compartir tu email con la EFF
+- Certbot verificará la propiedad de los dominios
+- Se generarán y configurarán los certificados
+
+### 13.3 Verificar la renovación automática
+
+Certbot crea automáticamente una tarea programada para renovar los certificados antes de que expiren. Puedes verificarla:
+
+```bash
+# Ver el temporizador de renovación
+sudo systemctl list-timers | grep certbot
+
+# Probar el proceso de renovación (en seco, sin realizar cambios)
+sudo certbot renew --dry-run
+```
+
+### 13.4 Ubicación de los certificados
+
+Los certificados se almacenan en:
+
+```text
+/etc/letsencrypt/live/tudominio.com/
+├── cert.pem       # Certificado del dominio
+├── chain.pem      # Certificados intermedios
+├── fullchain.pem  # cert.pem + chain.pem
+└── privkey.pem    # Clave privada
+```
+
+### 13.5 Comandos útiles de Certbot
+
+```bash
+# Listar certificados instalados
+sudo certbot certificates
+
+# Eliminar un certificado específico
+sudo certbot delete --cert-name midominio.com
+
+# Revocar y eliminar un certificado
+sudo certbot revoke --cert-path /etc/letsencrypt/live/midominio.com/cert.pem
+
+# Forzar renovación manual (normalmente no necesario)
+sudo certbot renew --force-renewal
+```
+
+### 13.6 Consideraciones importantes
+
+- Los certificados de Let's Encrypt son gratuitos pero perfectamente válidos
+- Los certificados de Let's Encrypt expiran cada 90 días
+- La renovación automática se intenta dos veces al día cuando quedan 30 días para la expiración
+- La renovación automática reiniciará/recargará NGINX automáticamente para coger los datos, si se hace manualmente es trabajo tuyo reiniciar/recargar
+- Se recomienda mantener el correo de contacto actualizado para recibir notificaciones importantes
+- Si cambias la configuración de NGINX, verifica que los certificados siguen funcionando
+- Let's Encrypt tiene límites de tasa: máximo 50 certificados por dominio por semana
+
+## 14. COMPROBACIÓN FINAL DEL SERVIDOR
+
+Antes de dar por finalizada la configuración del servidor, es importante realizar una serie de verificaciones para asegurarnos de que todo funciona correctamente y se iniciará automáticamente después de un reinicio.
+
+### 14.1 Verificar el estado de los servicios
+
+```bash
+# Comprobar que todos los servicios necesarios están activos y habilitados
+sudo systemctl status nginx
+sudo systemctl status myapp1.service
+sudo systemctl status myapp2.service  # Si tienes más aplicaciones
+sudo systemctl status mysql  # Si usas MySQL
+sudo systemctl status mongod  # Si usas MongoDB
+```
+
+### 14.2 Verificar los puertos en uso
+
+```bash
+# Ver qué puertos están escuchando y qué servicios los usan
+sudo ss -tulpn
+```
+
+Deberías ver:
+
+- Puerto 80 (HTTP) - NGINX
+- Puerto 443 (HTTPS) - NGINX
+- Puertos locales de tus aplicaciones Node (ej: 3010, 3020)
+- Puertos de bases de datos (si aplica)
+
+### 14.3 Verificar la configuración de NGINX
+
+```bash
+# Comprobar que no hay errores de sintaxis
+sudo nginx -t
+
+# Ver los sitios habilitados
+ls -la /etc/nginx/sites-enabled/
+```
+
+### 14.4 Verificar los certificados SSL
+
+```bash
+# Listar certificados y sus fechas de expiración
+sudo certbot certificates
+```
+
+### 14.5 Prueba de reinicio completo
+
+```bash
+# Reiniciar el servidor
+sudo reboot
+```
+
+Después del reinicio, verifica:
+
+1. Accede a tus dominios vía HTTPS:
+
+   - https://tudominio.com
+   - https://www.tudominio.com
+   - https://api.tudominio.com
+
+2. Comprueba que los certificados SSL funcionan correctamente (candado verde en el navegador)
+
+3. Realiza algunas peticiones de prueba a tu API
+
+4. Verifica los logs en busca de errores:
+
+```bash
+# Logs de NGINX
+sudo tail -f /var/log/nginx/error.log
+
+# Logs de tus aplicaciones Node (si has configurado logging)
+sudo tail -f /var/www/nodeapps/myapp1.log
+
+# Logs del sistema
+sudo journalctl -xe
+```
+
+### 14.6 Documentación final
+
+Es recomendable documentar:
+
+- Puertos utilizados por cada servicio
+- Dominios y subdominios configurados
+- Ubicación de los archivos de configuración importantes
+- Comandos frecuentes para gestión de servicios
+- Procedimientos de backup (si aplica)
+
+### 14.7 Consideraciones de seguridad finales
+
+- Verifica que el firewall está activo y con las reglas correctas. Recuerda que los únicos puertos web necesarios son el 80 y el 443. Eso no significa que debas cerrar todos los puertos que veas abiertos. Hay puertos que el sistema necesita como p.e. para actualizar al sistema. Los de los servidores node no deben estar abiertos. Los de las bases de datos sólo si necesitas acceder a ellos exteriormente, ya que para el uso de apis se hace de forma local:
+
+```bash
+sudo ufw status verbose
+```
+
+- Comprueba los intentos de acceso no autorizados:
+
+```bash
+sudo tail -f /var/log/auth.log
+```
+
+- Opcionalmente añade configuraciones extra de seguridad como FAILTOBAN o TIMEOUTS después de errores en los intentos de acceso por SSH:
+
+#### Configuraciones adicionales de seguridad para SSH
+
+Para mejorar la seguridad de acceso SSH, podemos implementar dos medidas adicionales:
+
+##### A. Configurar Fail2Ban para bloquear intentos de acceso fallidos
+
+Fail2Ban es una herramienta que monitoriza los logs del sistema y puede bloquear IPs que muestren comportamiento malicioso.
+
+```bash
+# Instalar Fail2Ban
+sudo apt install fail2ban -y
+
+# Crear archivo de configuración local
+sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+
+# Editar configuración
+sudo nano /etc/fail2ban/jail.local
+```
+
+Busca la sección [sshd] y modifica o añade estas líneas:
+
+```text:/etc/fail2ban/jail.local
+[sshd]
+enabled = true
+port = 2244 # O el puerto SSH que hayas configurado
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+findtime = 300
+bantime = 3600
+```
+
+Explicación de parámetros:
+
+- `maxretry`: Número de intentos fallidos antes del bloqueo
+- `findtime`: Período en segundos donde se cuentan los intentos
+- `bantime`: Tiempo en segundos que dura el bloqueo
+
+```bash
+# Iniciar y habilitar Fail2Ban
+sudo systemctl start fail2ban
+sudo systemctl enable fail2ban
+```
+
+Comandos útiles de Fail2Ban:
+
+```bash
+# Ver estado de las "cárceles" (jails)
+sudo fail2ban-client status
+
+# Ver IPs bloqueadas en SSH
+sudo fail2ban-client status sshd
+
+# Desbloquear una IP específica
+sudo fail2ban-client set sshd unbanip 123.123.123.123
+```
+
+Ahora deberas ser muy cuidadoso para evitar que tu propia ip sea bloqueada. Si ocurre deberás intentar conectarte desde otra ip o desde acceso tipo "Panel" si nuestro proovedor lo perrmite como vimos en el apartado 3.8 y desbloquear tu ip.
+
+##### B. Configurar tiempos de espera en SSH
+
+Edita el archivo de configuración SSH:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Añade o modifica estas líneas:
+
+```text:/etc/ssh/sshd_config
+# Tiempo máximo para loguearse (60 segundos)
+LoginGraceTime 60
+
+# Tiempo de inactividad antes de desconexión (300 segundos)
+ClientAliveInterval 300
+ClientAliveCountMax 0
+
+# Intentos máximos de login por conexión
+MaxAuthTries 3
+```
+
+Reinicia el servicio SSH para aplicar los cambios:
+
+```bash
+sudo systemctl restart sshd
+```
+
+Estas configuraciones:
+
+- Dan 60 segundos para completar el login
+- Desconectan sesiones inactivas después de 5 minutos
+- Limitan a 3 los intentos de login por conexión
+
+### 14.8 ¡Listo para producción! 🎉
+
+Si todas las verificaciones anteriores son correctas, ¡enhorabuena! Tu servidor está correctamente configurado y listo para producción.
+
+Recuerda:
+
+- Mantener el sistema actualizado regularmente
+- Monitorizar el uso de recursos
+- Realizar copias de seguridad periódicas
+- Revisar los logs ocasionalmente en busca de anomalías
+
+Ahora sí, puedes salir a pisar hierba. Te lo has ganado. 🌱
