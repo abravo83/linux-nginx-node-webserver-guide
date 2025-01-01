@@ -1162,3 +1162,307 @@ server {
     }
 }
 ```
+
+## 13. CONFIGURING CERTBOT FOR SSL CERTIFICATE MANAGEMENT
+
+Certbot is a tool that automates the process of obtaining and renewing free SSL certificates from Let's Encrypt.
+
+### 13.1 Install Certbot and the NGINX plugin
+
+```bash
+# Update repositories
+sudo apt update
+
+# Install Certbot and its NGINX plugin
+sudo apt install certbot python3-certbot-nginx -y
+```
+
+### 13.2 Obtain SSL certificates
+
+There are two ways to obtain certificates:
+
+#### Option 1: Automatic Obtaining (Recommended)
+
+This option will automatically modify the NGINX configuration. This means it will write to the configuration files where you have included the listener for that domain and port 443, adding the SSL option and the path where the certificates have been placed.
+
+To perform the installation with automatic renewal for the three domains, use this command:
+
+```bash
+sudo certbot --nginx -d mydomain.com -d www.mydomain.com -d api.mydomain.com
+```
+
+#### Option 2: Manual Obtaining (Not Recommended)
+
+If you prefer to manually manage the NGINX configuration, you won't have automatic renewal and will need to repeat the process every 3 months:
+
+```bash
+sudo certbot certonly --nginx -d mydomain.com -d www.mydomain.com -d api.mydomain.com
+```
+
+During the process (Both automatic and manual):
+
+- You'll be asked for an email address for important notifications
+- You'll need to accept the terms of service
+- Choose whether to share your email with the EFF
+- Certbot will verify domain ownership
+- Certificates will be generated and configured
+
+### 13.3 Verify automatic renewal
+
+Certbot automatically creates a scheduled task to renew certificates before they expire. You can verify it:
+
+```bash
+# View renewal timer
+sudo systemctl list-timers | grep certbot
+
+# Test renewal process (dry run, no actual changes)
+sudo certbot renew --dry-run
+```
+
+### 13.4 Certificate Location
+
+Certificates are stored in:
+
+```text
+/etc/letsencrypt/live/yourdomain.com/
+├── cert.pem       # Domain certificate
+├── chain.pem      # Intermediate certificates
+├── fullchain.pem  # cert.pem + chain.pem
+└── privkey.pem    # Private key
+```
+
+### 13.5 Useful Certbot Commands
+
+```bash
+# List installed certificates
+sudo certbot certificates
+
+# Delete a specific certificate
+sudo certbot delete --cert-name mydomain.com
+
+# Revoke and delete a certificate
+sudo certbot revoke --cert-path /etc/letsencrypt/live/mydomain.com/cert.pem
+
+# Force manual renewal (usually not necessary)
+sudo certbot renew --force-renewal
+```
+
+### 13.6 Important Considerations
+
+- Let's Encrypt certificates are free but perfectly valid
+- Let's Encrypt certificates expire every 90 days
+- Automatic renewal is attempted twice daily when 30 days remain until expiration
+- Automatic renewal will restart/reload NGINX automatically to pick up the data; if done manually, restarting/reloading is your responsibility
+- Keep the contact email updated to receive important notifications
+- If you change NGINX configuration, verify that certificates still work
+- Let's Encrypt has rate limits: maximum 50 certificates per domain per week
+
+## 14. FINAL SERVER VERIFICATION
+
+Before finalizing the server configuration, it's important to perform a series of checks to ensure everything works correctly and will start automatically after a reboot.
+
+### 14.1 Verify Service Status
+
+```bash
+# Check that all necessary services are active and enabled
+sudo systemctl status nginx
+sudo systemctl status myapp1.service
+sudo systemctl status myapp2.service  # If you have more applications
+sudo systemctl status mysql  # If using MySQL
+sudo systemctl status mongod  # If using MongoDB
+```
+
+### 14.2 Verify Ports in Use
+
+```bash
+# See which ports are listening and which services are using them
+sudo ss -tulpn
+```
+
+You should see:
+
+- Port 80 (HTTP) - NGINX
+- Port 443 (HTTPS) - NGINX
+- Local ports for your Node applications (e.g., 3010, 3020)
+- Database ports (if applicable)
+
+### 14.3 Verify NGINX Configuration
+
+```bash
+# Check for syntax errors
+sudo nginx -t
+
+# View enabled sites
+ls -la /etc/nginx/sites-enabled/
+```
+
+### 14.4 Verify SSL Certificates
+
+```bash
+# List certificates and their expiration dates
+sudo certbot certificates
+```
+
+### 14.5 Complete Restart Test
+
+```bash
+# Restart the server
+sudo reboot
+```
+
+After restart, verify:
+
+1. Access your domains via HTTPS:
+
+   - https://yourdomain.com
+   - https://www.yourdomain.com
+   - https://api.yourdomain.com
+
+2. Check that SSL certificates work correctly (green padlock in browser)
+
+3. Perform some test requests to your API
+
+4. Check logs for errors:
+
+```bash
+# NGINX logs
+sudo tail -f /var/log/nginx/error.log
+
+# Your Node application logs (if logging configured)
+sudo tail -f /var/www/nodeapps/myapp1.log
+
+# System logs
+sudo journalctl -xe
+```
+
+### 14.6 Final Documentation
+
+It's recommended to document:
+
+- Ports used by each service
+- Configured domains and subdomains
+- Location of important configuration files
+- Frequent service management commands
+- Backup procedures (if applicable)
+
+### 14.7 Final Security Considerations
+
+- Verify that the firewall is active and has the correct rules. Remember that the only web ports needed are 80 and 443. The node server ports should not be open. That does not mean you need to close every open port, there are system services that need their ports open, like, i.e to update the system. Database ports should only be open if you need to access them externally, since API usage is done locally:
+
+```bash
+sudo ufw status verbose
+```
+
+- Check for unauthorized access attempts:
+
+```bash
+sudo tail -f /var/log/auth.log
+```
+
+- Optionally add extra security configurations like FAIL2BAN or TIMEOUTS after SSH access attempt errors:
+
+#### Additional SSH Security Configurations
+
+To improve SSH access security, we can implement two additional measures:
+
+##### A. Configure Fail2Ban to block failed access attempts
+
+Fail2Ban is a tool that monitors system logs and can block IPs that show malicious behavior.
+
+```bash
+# Install Fail2Ban
+sudo apt install fail2ban -y
+
+# Create local configuration file
+sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+
+# Edit configuration
+sudo nano /etc/fail2ban/jail.local
+```
+
+Find the [sshd] section and modify or add these lines:
+
+```text:/etc/fail2ban/jail.local
+[sshd]
+enabled = true
+port = 2244 # Or the SSH port you've configured
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+findtime = 300
+bantime = 3600
+```
+
+Parameter explanation:
+
+- `maxretry`: Number of failed attempts before blocking
+- `findtime`: Period in seconds where attempts are counted
+- `bantime`: Time in seconds the block lasts
+
+```bash
+# Start and enable Fail2Ban
+sudo systemctl start fail2ban
+sudo systemctl enable fail2ban
+```
+
+Useful Fail2Ban commands:
+
+```bash
+# View jail status
+sudo fail2ban-client status
+
+# View blocked IPs in SSH
+sudo fail2ban-client status sshd
+
+# Unblock a specific IP
+sudo fail2ban-client set sshd unbanip 123.123.123.123
+```
+
+Now you'll need to be very careful to avoid getting your own IP blocked. If it happens, you'll need to try connecting from another IP or from "Panel" access if your provider allows it, as we saw in section 3.8, and unblock your IP.
+
+##### B. Configure SSH Timeouts
+
+Edit the SSH configuration file:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Add or modify these lines:
+
+```text:/etc/ssh/sshd_config
+# Maximum time to log in (60 seconds)
+LoginGraceTime 60
+
+# Inactivity time before disconnection (300 seconds)
+ClientAliveInterval 300
+ClientAliveCountMax 0
+
+# Maximum login attempts per connection
+MaxAuthTries 3
+```
+
+Restart the SSH service to apply changes:
+
+```bash
+sudo systemctl restart sshd
+```
+
+These configurations:
+
+- Give 60 seconds to complete login
+- Disconnect inactive sessions after 5 minutes
+- Limit to 3 login attempts per connection
+
+### 14.8 Ready for Production! 🎉
+
+If all previous verifications are correct, congratulations! Your server is properly configured and ready for production.
+
+Remember:
+
+- Keep the system regularly updated
+- Monitor resource usage
+- Perform periodic backups
+- Review logs occasionally for anomalies
+
+Now yes, you can go touch some grass. You've earned it. 🌱
