@@ -835,3 +835,332 @@ sudo systemctl restart myapp1.service
 # Ver los logs del servicio -hay que desplazarse abajo para ver los más recientes-
 sudo journalctl -u myapp1.service
 ```
+
+## 11. CONFIGURAR DOMINIOS Y SUBDOMINIOS
+
+Para que nuestros dominios y subdominios apunten a nuestro servidor, necesitamos configurar los registros DNS correspondientes. Este proceso se realiza a través del panel de control de tu proveedor de dominios.
+
+Allí encontrás una sección de DNS/Nameservers donde puedes editar los registros actuales de un dominio concreto y agregar los necesarios. Es posible que ya tengas un A con nombre @ que tendrás que editar y luego agregar un A con nombre `api` o el subdominio.
+
+Recuerda consultar los existentes antes de agregar para no duplicar registros. Si en un futuro migras el servidor de hosting recuerda volver aquí para modificar los registros apuntando a la nueva IP.
+
+### 11.1 Tipos de registros DNS necesarios
+
+#### Registro A (Recomendado por contestar más rápido)
+
+- Apunta un dominio o subdominio directamente a una dirección IP
+- Es el tipo de registro más común y sirve tanto para el dominio principal como para subdominios
+- Es más rápido en resolver que CNAME
+
+```text
+Tipo: A
+Nombre: @
+IP: 123.123.123.123
+TTL: 3600
+
+# Subdominio usando registro A
+Tipo: A
+Nombre: api
+IP: 123.123.123.123
+TTL: 3600
+```
+
+#### Registro CNAME (Como alternativa a usar un tipo A para un subdominio - NO USES AMBOS PARA UN SUBDOMINIO, uno u otro)
+
+- Apunta un subdominio a otro dominio
+- Útil para crear múltiples subdominios
+- Si cambias el principal, el CNAME no hay que modificarlo, ya que CNAME se ajusta a un A principal.
+
+```text
+Tipo: CNAME
+Nombre: api         // Creará api.tudominio.com
+Destino: @         // Apunta al dominio principal
+```
+
+### 11.2 Configuración típica para una web con dominio principal y con API como subdominio usando CNAME
+
+Por ejemplo, para configurar `midominio.com` y `api.midominio.com`:
+
+```text
+# Dominio principal
+Tipo: A
+Nombre: @
+IP: 123.123.123.123
+TTL: 300
+
+# Subdominio www
+Tipo: CNAME
+Nombre: www
+Destino: @
+TTL: 300
+
+# Subdominio API
+Tipo: CNAME
+Nombre: api
+Destino: @
+TTL: 300
+```
+
+### 11.3 Consideraciones importantes
+
+- Los cambios en DNS pueden tardar hasta 48 horas en propagarse globalmente (TTL - Time To Live) pero generalmente tardan unos pocos minutos.
+- Es recomendable empezar con un TTL bajo (100-300 segundos) durante la configuración inicial por si tienes que hacer un cambio que la propagación tarde poco.
+- Una vez estable, puedes aumentar el TTL (3600 segundos es una configuración común)
+
+## 12. CONFIGURAR NGINX COMO REVERSE PROXY
+
+LLegados a este punto debemos tener nuestros servicios node corriendo de forma local y nuestro servidor web NGINX devolviendo la web por defecto.
+
+Para comprobar si los node ya están corriendo correctamente podemos abrir momentáneamente su puerto en el firewall y comprobar con el navegador si está funcionando dirigiendonos al dominio y directamente al puerto del node.
+
+```bash
+# Para poder acceder al node que corre en el 3010
+sudo ufw allow 3010/tcp
+```
+
+Luego con el navegador abrimos la dirección y el puerto con http `http://midominio.com:3010`
+
+Una vez comprobado debemos volver a cerrar el puerto
+
+```bash
+sudo ufw delete allow 3010/tcp
+```
+
+Ahora vamos a hacer que NGINX actue como reverse proxy, y que sea él el que redirija las peticiones entrantes a los diferentes servidores Node.js según el dominio o subdominio solicitado.
+
+### 12.1 Estructura de configuración de NGINX simple
+
+Podemos seguir dos estructuras, podemos modificar el archivo de configuración actual directamente o agregar archivos de configuración individuales.
+
+El primer método es válido para un servidor con pocos servicios node, el segundo es recomendable para mantener todo mejor si el servidor crece.
+
+Con el primero vamos a editar el archivo de configuración y agregar nuestros servidores
+
+Primero realizaremos una copia de seguridad del archivo de configurarción
+
+```bash
+sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default-backup
+```
+
+Luego abrimos con nano el archivo de configuración
+
+```bash
+sudo nano /etc/nginx/sites-available/defaul
+```
+
+Vamos a llegar a la línea donde dice `#Default server configuration` y vamos a insertar por encima (dejando por encima y por debajo de esta línea todo intacto a modo de referencia) nuestra configuración de un servidor escuchando al puerto 80:
+
+```text
+server {
+	listen 80;
+	server_name www.midominio.com midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3010;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+```
+
+con esto hemos configurado las peticiones que lleguen desde la dirección del navegador http://www.midominio.com con y sin www para que se dirijan al node corriendo en 3010. Ahora queremos que también las https se dirijan al mismo. Añadimos debajo de la llave de cierre otro bloque pero para el puerto 443.
+
+```text
+server {
+	listen 443 http2;
+	server_name www.midominio.com midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3010;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+```
+
+Ya hemos añadido la configuración para el dominio principal y su subdominio www. Ahora vamos añadir la configuración para el subdominio api.midominio.com hacia el node corriendo en el puerto 3020 de la misma forma, pero teniendo cuidado de AGREGARLA POR ENCIMA del principal para que el reenvío se ejecute antes del principal.
+
+```text
+server {
+	listen 80;
+	server_name api.midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3020;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+
+server {
+	listen 443 http2;
+	server_name api.midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3020;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+```
+
+Guardamos el archivo y verificamos y recargamos la configuración de nginx para que se carguen los cambios.
+
+```bash
+# Verificar que la sintaxis es correcta
+sudo nginx -t
+
+# Recargar NGINX para aplicar cambios
+sudo systemctl reload nginx
+```
+
+### 12.2 Estructura de configuración de NGINX más escalable
+
+La configuración de NGINX se organiza en varios directorios:
+
+```bash
+/etc/nginx/
+├── nginx.conf              # Configuración principal
+├── sites-available/        # Configuraciones de sitios disponibles
+└── sites-enabled/         # Enlaces simbólicos a configuraciones activas
+```
+
+Para cada aplicación, crearemos un archivo de configuración en sites-available dejando intacto el archivo de `/etc/nginx/sites-available/default`. En este caso crearemos un archivo en esa misma carpeta con el nombre de la aplicación:
+
+```bash
+sudo nano /etc/nginx/sites-available/myapp1
+```
+
+Y escribimos la configuración básica para una aplicación web:
+
+```nginx:/etc/nginx/sites-available/myapp1
+server {
+    listen 80;
+    server_name midominio.com www.midominio.com;
+
+    location / {
+        proxy_pass http://localhost:3010;  # Puerto donde escucha tu app Node
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+	listen 443 http2;
+	server_name midominio.com www.midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3010;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+```
+
+Para una API en subdominio api.midominio.com:
+
+```bash
+sudo nano /etc/nginx/sites-available/myapp1-api
+```
+
+```nginx:/etc/nginx/sites-available/myapp1-api
+server {
+    listen 80;
+    server_name api.midominio.com;
+
+    location / {
+        proxy_pass http://localhost:3020;  # Puerto donde escucha tu API
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+
+server {
+	listen 443 http2;
+	server_name api.midominio.com;
+
+	location / {
+            proxy_pass http://localhost:3020;
+            proxy_http_version 1.1;
+            proxy_read_timeout 300;
+            proxy_connect_timeout 300;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+        }
+}
+```
+
+#### Activar las configuraciones
+
+Crear enlaces simbólicos en sites-enabled para activar esas configuración:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/myapp1 /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/myapp1-api /etc/nginx/sites-enabled/
+```
+
+#### Verificar y recargar la configuración
+
+```bash
+# Verificar que la sintaxis es correcta
+sudo nginx -t
+
+# Recargar NGINX para aplicar cambios
+sudo systemctl reload nginx
+```
+
+Y así, siguiendo este proceso de añadir archivo de configuración y habilitar al incluir su enlace simbólico en la carpeta `sites-enabled` podemos ir incluyendo posteriores servidores web node a los que reenviar las peticiones.
+
+### 12.3 Mejoras en el servidor
+
+Podemos incluir configuraciones como añadir compresión u otras para mejorar el rendimiento
+
+```nginx:/etc/nginx/sites-available/myapp1
+server {
+    # ... configuración básica ...
+
+    # Habilitar compresión gzip (Recomendable)
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_min_length 1000;
+
+    # Caché para archivos estáticos (Sólo si el contenido de la web no suele variar)
+    location /static/ {
+        expires 1y;
+        add_header Cache-Control "public, no-transform";
+    }
+}
+```
