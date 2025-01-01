@@ -158,7 +158,7 @@ PasswordAuthentication yes
 Port 2244
 ```
 
-A la hora de cambiar el puerto SSH recuerda 2 cosas: Anotar bien el puerto. No usuar un puerto que esté usando otro servicio.
+A la hora de cambiar el puerto SSH recuerda 2 cosas: Anotar bien el puerto. No usar un puerto que esté usando otro servicio.
 
 [Te dejo un listado con los puertos más comunes para que evites usarlos si te decides cambiar el puerto SSH](https://www.stationx.net/common-ports-cheat-sheet/)
 
