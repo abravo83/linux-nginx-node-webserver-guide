@@ -117,68 +117,6 @@ Entonces la conexión será así, por ejemplo, al puerto 2244:
 ssh -p 2244 root@122.122.122.122
 ```
 
-**Es muy recomendable modificar el puerto de SSH a otro diferente al 22, pero esto es una operación muy delicada que nos puede dejar sin acceso al servidor, por lo que hay que tomar medidas de seguridad**
-
-Como hemos dicho, el puerto 22 es el puerto por defecto. Pues bien, tu servidor con dicho puerto abierto va a tener unos 5-6 intentos de acceso, la mayoría con intento de usuario root, a nuestro servidor.
-
-Si modificamos ese puerto nos quitamos la molestia de recibir todos esos ataques de fuerza bruta y le quitamos esa carga al servidor.
-
-Pero hay que hacerlo con mucho cuidado.
-
-1- Es recomendable asegurarnos de que a través de nuestro proovedor tenemos acceso via consola o KVM, que es básicamente un acceso remoto pero a través del panel de control, siendo para nuestro servidor como un acceso no remoto y por tanto no a través de SSH. Debemos para eso buscar en el panel de control eso: KVM, o Acceso Consola, O Consola Virtual... algo similar. Probamos y vemos si podemos iniciar sesión en nuestro servidor con nuestro usuario y contraseña por esta vía.
-
-2- Si no es así, es más peligroso, ya que de ir mál las cosas te cerrarías todo accesos y quizás no te queda otra que reinstalar todo de 0 incluyendo el servidor con su sistema operativo, etc.
-
-3- Lo primero que haremos es elegir un puerto libre que no use ningún servicio conocido. No puedo recomendar ninguno, pero investiga un poco para tomar tu decisión asegurándote que es un puerto libre de uso actualmente y en un futuro si es posible también. Evita puertos de servicios comunes como servidores de BBDD, y otros servicios comunes.
-
-4- Luego debemos abrir dicho puerto en nuestro firewall con `sudo ufw allow <TuNumeroDePuerto>/tcp`
-
-5- Después vamos a modificar la configuración del servicio ssh haciendo `sudo nano /etc/ssh/sshd_config` y buscando una línea que pone `# Port 22` que vamos a cambiar por `Port <TuNumeroDePuerto>` p.e. `Port 61234` (Es un ejemplo, no tengo ni idea de si es un buen puerto para usar) y vamos a guardar el archivo usando Ctrl + W y a cerrar el archivo con Ctrl + X.
-
-6- Ahora debemos reiniciar el servicio. Primero vamos a recargar el daemon, ya que suele dar problemas para reiniciar ssh, y luego reiniciamos el servicio ssh y después vemos el status, donde nos indicará el puerto en el que está escuchando:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart ssh
-sudo systemctl status ssh
-```
-
-Si tenemos un mensaje como este, con el puerto que hemos fijado, es que va bien y el servicio escucha en el puerto que hemos fijado si lo pone en el status donde está el cuadrado rojo.
-
-<img src="./img/fig-3.png">
-
-En mi caso veo que el servicio ssh está casi bien, pero no está enabled, lo cual es un problema ya que no se iniciará en un reinicio, dejándome fuera salvo por acceso por consola virtual.
-
-así que me falta habilitar el servicio ssh
-
-```bash
-sudo systemctl enable ssh
-```
-
-7- Una vez hecho esto debemos abrir desde nuestro ordenador OTRA consola sin cerrar la actual para no perder la conexión. Con la nueva consola intentamos en acceso ssh por el nuevo puerto: p.e
-
-```Bash
-ssh -p 2244 root@122.122.122.122
-```
-
-Si todo va bién y tenemos acceso estamos listos para cerrar el puerto 22.
-
-8- Ahora desde la segunda consola vamos a deshabilitar el acceso del firewall al puerto 22:
-
-```Bash
-sudo ufw delete allow 22/tcp
-```
-
-Y con eso hemos cerrado el puerto.
-
-podemos comprobarlo con:
-
-```Bash
-sudo ufw status
-```
-
-A partir de ahora ya debemos de acceder sólo a través del nuevo puerto y ya no veremos tantos intentos de acceso a nuestro servidor.
-
 ## 2. MODIFICAR LOS DATOS DE ACCESO
 
 Para mejorar la seguridad de nuestro servidor, seguiremos estos pasos:
@@ -1484,7 +1422,69 @@ sudo fail2ban-client set sshd unbanip 123.123.123.123
 
 Ahora deberas ser muy cuidadoso para evitar que tu propia ip sea bloqueada. Si ocurre deberás intentar conectarte desde otra ip o desde acceso tipo "Panel" si nuestro proovedor lo perrmite como vimos en el apartado 3.8 y desbloquear tu ip.
 
-##### B. Configurar tiempos de espera en SSH
+##### B. Cambiar puerto por defecto de SSH
+
+Como hemos dicho, el puerto 22 es el puerto por defecto. Pues bien, tu servidor con dicho puerto abierto va a tener unos 5-6 intentos de acceso, la mayoría con intento de usuario root, a nuestro servidor.
+
+Si modificamos ese puerto nos quitamos la molestia de recibir todos esos ataques de fuerza bruta y le quitamos esa carga al servidor.
+
+Pero hay que hacerlo con mucho cuidado.
+
+1- Es recomendable asegurarnos de que a través de nuestro proovedor tenemos acceso via consola o KVM, que es básicamente un acceso remoto pero a través del panel de control, siendo para nuestro servidor como un acceso no remoto y por tanto no a través de SSH. Debemos para eso buscar en el panel de control eso: KVM, o Acceso Consola, O Consola Virtual... algo similar. Probamos y vemos si podemos iniciar sesión en nuestro servidor con nuestro usuario y contraseña por esta vía.
+
+2- Si no es así, es más peligroso, ya que de ir mál las cosas te cerrarías todo accesos y quizás no te queda otra que reinstalar todo de 0 incluyendo el servidor con su sistema operativo, etc.
+
+3- Lo primero que haremos es elegir un puerto libre que no use ningún servicio conocido. No puedo recomendar ninguno, pero investiga un poco para tomar tu decisión asegurándote que es un puerto libre de uso actualmente y en un futuro si es posible también. Evita puertos de servicios comunes como servidores de BBDD, y otros servicios comunes.
+
+4- Luego debemos abrir dicho puerto en nuestro firewall con `sudo ufw allow <TuNumeroDePuerto>/tcp`
+
+5- Después vamos a modificar la configuración del servicio ssh haciendo `sudo nano /etc/ssh/sshd_config` y buscando una línea que pone `# Port 22` que vamos a cambiar por `Port <TuNumeroDePuerto>` p.e. `Port 61234` (Es un ejemplo, no tengo ni idea de si es un buen puerto para usar) y vamos a guardar el archivo usando Ctrl + W y a cerrar el archivo con Ctrl + X.
+
+6- Ahora debemos reiniciar el servicio. Primero vamos a recargar el daemon, ya que suele dar problemas para reiniciar ssh, y luego reiniciamos el servicio ssh y después vemos el status, donde nos indicará el puerto en el que está escuchando:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart ssh
+sudo systemctl status ssh
+```
+
+Si tenemos un mensaje como este, con el puerto que hemos fijado, es que va bien y el servicio escucha en el puerto que hemos fijado si lo pone en el status donde está el cuadrado rojo.
+
+<img src="./img/fig-3.png">
+
+En mi caso veo que el servicio ssh está casi bien, pero no está enabled, lo cual es un problema ya que no se iniciará en un reinicio, dejándome fuera salvo por acceso por consola virtual.
+
+así que me falta habilitar el servicio ssh
+
+```bash
+sudo systemctl enable ssh
+```
+
+7- Una vez hecho esto debemos abrir desde nuestro ordenador OTRA consola sin cerrar la actual para no perder la conexión. Con la nueva consola intentamos en acceso ssh por el nuevo puerto: p.e
+
+```Bash
+ssh -p 2244 root@122.122.122.122
+```
+
+Si todo va bién y tenemos acceso estamos listos para cerrar el puerto 22.
+
+8- Ahora desde la segunda consola vamos a deshabilitar el acceso del firewall al puerto 22:
+
+```Bash
+sudo ufw delete allow 22/tcp
+```
+
+Y con eso hemos cerrado el puerto.
+
+podemos comprobarlo con:
+
+```Bash
+sudo ufw status
+```
+
+A partir de ahora ya debemos de acceder sólo a través del nuevo puerto y ya no veremos tantos intentos de acceso a nuestro servidor.
+
+##### C. Configurar tiempos de espera en SSH
 
 Edita el archivo de configuración SSH:
 

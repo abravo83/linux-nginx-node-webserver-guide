@@ -117,67 +117,6 @@ Then the connection would be like this, for example, to port 2244:
 ssh -p 2244 root@122.122.122.122
 ```
 
-**It is highly recommended to modify the SSH port to something different than 22, but this is a delicate operation that could leave us without access to the server, so security measures must be taken**
-
-As we mentioned, port 22 is the default port. Well, your server with that port open will receive about 5-6 access attempts, most of them trying to access with root user, to our server.
-
-If we modify that port, we avoid the hassle of receiving all those brute force attacks and remove that load from the server.
-
-But it must be done very carefully.
-
-1- It is recommended to ensure that through our provider we have access via console or KVM, which is basically remote access but through the control panel, being for our server like a non-remote access and therefore not through SSH. For this, we should look in the control panel for: KVM, or Console Access, Or Virtual Console... something similar. We test and see if we can log into our server with our username and password through this route.
-
-2- If not, it's more dangerous, as if things go wrong you could close all access and maybe you have no choice but to reinstall everything from scratch including the server with its operating system, etc.
-
-3- The first thing we'll do is choose a free port that no known service uses. I can't recommend any, but investigate a bit to make your decision ensuring it's a port that's currently free and if possible will remain free in the future as well. Avoid ports of common services like DB servers and other common services.
-
-4- Then we must open that port in our firewall with `sudo ufw allow <YourPortNumber>/tcp`
-
-5- Then we'll modify the ssh service configuration by doing `sudo nano /etc/ssh/sshd_config` and looking for a line that says `# Port 22` which we'll change to `Port <YourPortNumber>` e.g. `Port 61234` (It's an example, I have no idea if it's a good port to use) and we'll save the file using Ctrl + W and close the file with Ctrl + X.
-
-6- Now we must restart the service. First we'll reload the daemon, as it usually gives problems when restarting ssh, and then restart the ssh service and then check the status, where it will indicate the port it's listening on:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart ssh
-sudo systemctl status ssh
-```
-
-If we have a message like this, with the port we've set, it means it's working well and the service is listening on the port we've set if it shows in the status where the red square is.
-
-<img src="./img/fig-3.png">
-
-In my case I see that the ssh service is almost good, but it's not enabled, which is a problem since it won't start on a reboot, leaving me out except for virtual console access.
-
-so I need to enable the ssh service
-
-```bash
-sudo systemctl enable ssh
-```
-
-7- Once this is done we must open from our computer ANOTHER console without closing the current one to not lose the connection. With the new console we try ssh access through the new port: e.g.
-
-```Bash
-ssh -p 2244 root@122.122.122.122
-```
-
-If all goes well and we have access we are ready to close port 22.
-
-8- Now from the second console we will disable firewall access to port 22:
-
-```Bash
-sudo ufw delete allow 22/tcp
-```
-
-And with that we have closed the port.
-we can check it with:
-
-```Bash
-sudo ufw status
-```
-
-From now on we must only access through the new port and we won't see so many access attempts to our server.
-
 ## 2. MODIFY ACCESS CREDENTIALS
 
 To improve our server's security, we'll follow these steps:
@@ -1481,7 +1420,68 @@ sudo fail2ban-client set sshd unbanip 123.123.123.123
 
 Now you'll need to be very careful to avoid getting your own IP blocked. If it happens, you'll need to try connecting from another IP or from "Panel" access if your provider allows it, as we saw in section 3.8, and unblock your IP.
 
-##### B. Configure SSH Timeouts
+##### B. Change SSH default port
+
+As we mentioned, port 22 is the default port. Well, your server with that port open will receive about 5-6 access attempts, most of them trying to access with root user, to our server.
+
+If we modify that port, we avoid the hassle of receiving all those brute force attacks and remove that load from the server.
+
+But it must be done very carefully.
+
+1- It is recommended to ensure that through our provider we have access via console or KVM, which is basically remote access but through the control panel, being for our server like a non-remote access and therefore not through SSH. For this, we should look in the control panel for: KVM, or Console Access, Or Virtual Console... something similar. We test and see if we can log into our server with our username and password through this route.
+
+2- If not, it's more dangerous, as if things go wrong you could close all access and maybe you have no choice but to reinstall everything from scratch including the server with its operating system, etc.
+
+3- The first thing we'll do is choose a free port that no known service uses. I can't recommend any, but investigate a bit to make your decision ensuring it's a port that's currently free and if possible will remain free in the future as well. Avoid ports of common services like DB servers and other common services.
+
+4- Then we must open that port in our firewall with `sudo ufw allow <YourPortNumber>/tcp`
+
+5- Then we'll modify the ssh service configuration by doing `sudo nano /etc/ssh/sshd_config` and looking for a line that says `# Port 22` which we'll change to `Port <YourPortNumber>` e.g. `Port 61234` (It's an example, I have no idea if it's a good port to use) and we'll save the file using Ctrl + W and close the file with Ctrl + X.
+
+6- Now we must restart the service. First we'll reload the daemon, as it usually gives problems when restarting ssh, and then restart the ssh service and then check the status, where it will indicate the port it's listening on:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart ssh
+sudo systemctl status ssh
+```
+
+If we have a message like this, with the port we've set, it means it's working well and the service is listening on the port we've set if it shows in the status where the red square is.
+
+<img src="./img/fig-3.png">
+
+In my case I see that the ssh service is almost good, but it's not enabled, which is a problem since it won't start on a reboot, leaving me out except for virtual console access.
+
+so I need to enable the ssh service
+
+```bash
+sudo systemctl enable ssh
+```
+
+7- Once this is done we must open from our computer ANOTHER console without closing the current one to not lose the connection. With the new console we try ssh access through the new port: e.g.
+
+```Bash
+ssh -p 2244 root@122.122.122.122
+```
+
+If all goes well and we have access we are ready to close port 22.
+
+8- Now from the second console we will disable firewall access to port 22:
+
+```Bash
+sudo ufw delete allow 22/tcp
+```
+
+And with that we have closed the port.
+we can check it with:
+
+```Bash
+sudo ufw status
+```
+
+From now on we must only access through the new port and we won't see so many access attempts to our server.
+
+##### C. Configure SSH Timeouts
 
 Edit the SSH configuration file:
 
